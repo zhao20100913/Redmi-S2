@@ -41,10 +41,14 @@ fi
 
 run_denial() {
 	mode=$1
+	# No --start-locked: the port boots straight into the desktop.  Denial
+	# requires that flag to be combined with --flutter-bundle, which
+	# denial-session already passes, so adding it later is a one-liner
+	# (see the README) if a lockscreen-first boot is wanted.
 	if [ "$mode" = "dbus" ]; then
-		dbus-run-session -- /usr/bin/denial-session --start-locked &
+		dbus-run-session -- /usr/bin/denial-session &
 	else
-		/usr/bin/denial-session --start-locked &
+		/usr/bin/denial-session &
 	fi
 	pid=$!
 	i=0
@@ -71,7 +75,7 @@ run_denial() {
 	return 124
 }
 
-echo "ysl-start-denial: starting denial-session --start-locked"
+echo "ysl-start-denial: starting denial-session"
 run_denial direct
 rc=$?
 if [ "$rc" -ne 0 ]; then
