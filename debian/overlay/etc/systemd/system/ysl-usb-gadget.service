@@ -1,0 +1,14 @@
+[Unit]
+Description=USB gadget (RNDIS network + ACM serial console)
+After=sys-kernel-config.mount systemd-modules-load.service
+Before=NetworkManager.service serial-getty@ttyGS0.service
+ConditionPathExists=/sys/kernel/config
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ysl-usb-gadget.sh
+TimeoutStartSec=45
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,117 @@
+# Packages installed into the Debian 13 (trixie) arm64 root filesystem.
+# One package per line; comments and blank lines are ignored.  Everything is
+# installed with --no-install-recommends, so anything actually wanted from a
+# "Recommends:" line has to be listed here explicitly.
+#
+# Base system ---------------------------------------------------------------
+systemd
+systemd-sysv
+systemd-timesyncd
+dbus
+dbus-user-session
+udev
+kmod
+locales
+tzdata
+console-setup
+keyboard-configuration
+ca-certificates
+gnupg
+sudo
+openssh-server
+polkitd
+rtkit
+
+# Networking ----------------------------------------------------------------
+network-manager
+wpasupplicant
+rfkill
+iw
+wireless-regdb
+bluez
+dnsmasq-base
+iproute2
+iputils-ping
+bind9-dnsutils
+net-tools
+traceroute
+tcpdump
+curl
+wget
+usbutils
+pciutils
+ethtool
+openssh-client
+dropbear-bin
+
+# DenialWM runtime ----------------------------------------------------------
+# The debs pull their own Depends (incl. xserver-xorg-core + xwayland); these
+# are the useful extras: seat/input/GL, portals, audio, fonts, session tools.
+libseat1
+libinput10
+libxkbcommon0
+libgbm1
+libegl1
+libgles2
+libvulkan1
+libpulse0
+libpam0g
+libpolkit-agent-1-0
+libgl1
+libglx-mesa0
+libgl1-mesa-dri
+mesa-vulkan-drivers
+mesa-utils
+x11-xkb-utils
+xkb-data
+xserver-xorg-core
+xwayland
+pipewire
+pipewire-pulse
+wireplumber
+xdg-desktop-portal
+xdg-desktop-portal-gtk
+xdg-desktop-portal-wlr
+xdg-utils
+zenity
+upower
+power-profiles-daemon
+fonts-noto-cjk
+fonts-noto-core
+fonts-noto-color-emoji
+fonts-dejavu-core
+fontconfig
+alsa-ucm-conf
+pavucontrol
+network-manager-gnome
+
+# Input methods ------------------------------------------------------------
+ibus
+ibus-libpinyin
+ibus-gtk3
+
+# Command line tools -------------------------------------------------------
+vim-tiny
+nano
+less
+htop
+tmux
+file
+unzip
+zip
+xz-utils
+zstd
+rsync
+git
+jq
+strace
+lsof
+tree
+parted
+e2fsprogs
+cloud-guest-utils
+dosfstools
+i2c-tools
+evtest
+zram-tools
+usb-modeswitch

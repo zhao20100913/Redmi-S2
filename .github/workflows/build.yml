@@ -1,0 +1,146 @@
+name: Build Debian 13 + DenialWM for Redmi S2 (ysl)
+
+# Builds a flashable Debian 13 (trixie) + DenialWM bundle for the Xiaomi
+# Redmi S2 / Redmi Y2 (ysl, MSM8953 / Snapdragon 625).
+#
+# Boot chain:
+#   stock ABL -> lk2nd (boot partition) -> ext2 boot fs @512k (extlinux.conf)
+#   -> mainline msm8953 kernel + ysl DTB -> ext4 root on userdata
+#
+# The kernel, lk2nd and the Qualcomm firmware come from the *published*
+# postmarketOS aarch64 packages (see scripts/fetch-base.py); only the Debian
+# user space (and Denial) is built here, which keeps a run at ~20 minutes.
+#
+# Outputs (artifact "redmi-s2-<run>"):
+#   boot.img          lk2nd + kernel + dtb, flashed to the BOOT partition
+#   root.img.gz       Debian 13 + Denial, flashed to USERDATA
+#   SHA256SUMS, verify.log, manifest.json
+
+on:
+  workflow_dispatch:
+    inputs:
+      rootfs_size_gb:
+        description: "Initial ext4 size in GiB (grown to the full userdata on first boot)"
+        required: false
+        default: "4"
+      denial_version:
+        description: "DenialWM release to install"
+        required: false
+        default: "0.6.8"
+      kernel_version:
+        description: "Pin linux-postmarketos-qcom-msm8953 (empty = newest in APKINDEX)"
+        required: false
+        default: ""
+  push:
+    branches: [ main ]
+    paths:
+      - "scripts/**"
+      - "debian/**"
+      - ".github/workflows/build.yml"
+    tags: [ "v*" ]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  ROOTFS_UUID: 8f3a5c1e-1d2b-4a5f-9c3e-7b6d2a4f8e11
+  DENIAL_VERSION: ${{ inputs.denial_version || '0.6.8' }}
+  ROOTFS_SIZE_GB: ${{ inputs.rootfs_size_gb || '4' }}
+  PMOS_REPO: https://mirror.postmarketos.org/postmarketos/master/aarch64
+
+jobs:
+  build:
+    name: Debian rootfs + boot image (aarch64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/powershell /usr/share/swift || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            debootstrap qemu-user-static binfmt-support e2fsprogs kmod \
+            gzip xz-utils curl python3 rsync file zstd
+
+      - name: Enable arm64 binfmt
+        run: |
+          set -x
+          if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+            sudo update-binfmts --enable qemu-aarch64 || true
+          fi
+          if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+            echo "::warning::binfmt_misc has no qemu-aarch64; trying docker fallback"
+            docker run --rm --privileged tonistiigi/binfmt --install arm64 || true
+          fi
+          ls /proc/sys/fs/binfmt_misc/ | head -20
+          test -e /proc/sys/fs/binfmt_misc/qemu-aarch64
+
+      - name: Fetch postmarketOS base (kernel, lk2nd, firmware)
+        run: |
+          args=()
+          if [ -n "${{ inputs.kernel_version }}" ]; then
+            args+=("linux-postmarketos-qcom-msm8953=${{ inputs.kernel_version }}")
+          fi
+          python3 scripts/fetch-base.py base "${args[@]}"
+          cat base/manifest.json
+
+      - name: Build Debian 13 root filesystem
+        run: |
+          sudo -E scripts/build-rootfs.sh rootfs base
+
+      - name: Build boot.img (lk2nd + ext2 boot filesystem)
+        run: bash scripts/make-boot.sh base out
+
+      - name: Build root.img
+        run: sudo -E bash scripts/make-rootfs-image.sh rootfs out/root.img "$ROOTFS_SIZE_GB"
+
+      - name: Verify images
+        run: |
+          sudo python3 scripts/verify.py out/boot.img out/root.img | tee out/verify.log
+
+      - name: Compress and checksum
+        run: |
+          gzip -6 out/root.img
+          cp base/manifest.json out/manifest.json
+          (cd out && sha256sum boot.img root.img.gz > SHA256SUMS && cat SHA256SUMS)
+          sudo chown -R "$(id -u):$(id -g)" out
+          ls -la out
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: redmi-s2-${{ github.run_number }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/boot.img
+            out/bootfs.img
+            out/lk2nd.img
+            out/root.img.gz
+            out/SHA256SUMS
+            out/verify.log
+            out/manifest.json
+          generate_release_notes: true

@@ -1,0 +1,7 @@
+// The only interactive user is the phone owner; Denial's polkit agent would
+// otherwise ask for a password for things like suspend or power off.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "ysl") {
+        return polkit.Result.YES;
+    }
+});

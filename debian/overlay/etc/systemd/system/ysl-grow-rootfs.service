@@ -1,0 +1,14 @@
+[Unit]
+Description=Grow the root filesystem to fill the userdata partition
+DefaultDependencies=no
+After=local-fs.target
+ConditionPathExists=!/var/lib/ysl-rootfs-grown
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/local/sbin/ysl-grow-rootfs.sh
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

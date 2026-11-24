@@ -1,0 +1,13 @@
+[Unit]
+Description=Load the WCN36xx WiFi driver once vendor firmware is available
+After=ysl-firmware-loader.service
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/sbin/modprobe qcom_wcnss_pil
+ExecStart=/sbin/modprobe wcn36xx
+
+[Install]
+WantedBy=multi-user.target

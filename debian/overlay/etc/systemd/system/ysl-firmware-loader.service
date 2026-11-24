@@ -1,0 +1,13 @@
+[Unit]
+Description=Copy firmware out of the stock Android partitions
+After=local-fs.target systemd-udevd.service
+Before=NetworkManager.service ysl-wifi.service bluetooth.service
+TimeoutStartSec=120
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ysl-firmware-loader.sh
+
+[Install]
+WantedBy=multi-user.target
