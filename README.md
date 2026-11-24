@@ -23,6 +23,14 @@
 
 **没有 initramfs**，没有 postmarketOS 用户空间。内核直接挂根。
 
+## 状态
+
+- **v0.1.0 已构建并发布**：[Redmi-S2 v0.1.0](https://github.com/zhao20100913/Redmi-S2/releases/tag/v0.1.0)
+  （boot.img 25.7 MB / bootfs.img 25.2 MB / lk2nd.img 0.4 MB / root.img.gz 657.5 MB）。
+- CI 里的结构自检（`scripts/verify.py`）全部通过：lk2nd 头、512 KiB 处的 ext2、
+  extlinux.conf 里的 root UUID、内核与 ysl DTB、ext4 UUID 一致、Denial 与内核模块在位。
+- **还没有在真机上开过机。** 第一次刷机后的串口/内核日志是下一步唯一需要的东西。
+
 ## 产物
 
 工作流 `Build Debian 13 + DenialWM for Redmi S2 (ysl)` 产出 artifact `redmi-s2-<run>`：
