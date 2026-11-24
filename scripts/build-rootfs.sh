@@ -118,7 +118,8 @@ in_root() {
 log "apt-get update"
 in_root apt-get update -o Acquire::Languages=none -o Acquire::Retries=3
 
-mapfile -t WANTED < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[[:space:]]//g' "$HERE/packages.txt")
+PKG_LIST="$REPO/debian/packages.txt"
+mapfile -t WANTED < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[[:space:]]//g' "$PKG_LIST")
 INSTALL=()
 MISSING=()
 for pkg in "${WANTED[@]}"; do
@@ -132,6 +133,7 @@ printf '   %d packages to install\n' "${#INSTALL[@]}"
 if [ ${#MISSING[@]} -gt 0 ]; then
 	log "warning: not available in $RELEASE: ${MISSING[*]}"
 fi
+[ ${#INSTALL[@]} -gt 0 ] || { echo "package list $PKG_LIST produced nothing" >&2; exit 1; }
 log "installing packages (this is the slow part)"
 in_root apt-get install -y --no-install-recommends "${INSTALL[@]}"
 
@@ -150,7 +152,7 @@ chmod 0644 "$ROOT/tmp/denial/"*.deb
 # the dependency resolution so a trixie version bump does not break the build.
 # Inside the chroot the downloads are at /tmp/denial/... (the $ROOT prefix
 # only exists on the host side).
-in_root apt-get install -y \
+in_root apt-get install -y --no-install-recommends \
 	"/tmp/denial/denial-flutter-engine_${DENIAL_VERSION}-1_arm64.deb" \
 	"/tmp/denial/denial_${DENIAL_VERSION}-1_arm64.deb"
 rm -rf "$ROOT/tmp/denial"
