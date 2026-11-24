@@ -144,9 +144,11 @@ chmod 0644 "$ROOT/tmp/denial/"*.deb
 
 # Denial pulls xserver-xorg-core (for Xwayland) etc. through apt; let apt do
 # the dependency resolution so a trixie version bump does not break the build.
+# Inside the chroot the downloads are at /tmp/denial/... (the $ROOT prefix
+# only exists on the host side).
 in_root apt-get install -y \
-	"$ROOT/tmp/denial/denial-flutter-engine_${DENIAL_VERSION}-1_arm64.deb" \
-	"$ROOT/tmp/denial/denial_${DENIAL_VERSION}-1_arm64.deb"
+	"/tmp/denial/denial-flutter-engine_${DENIAL_VERSION}-1_arm64.deb" \
+	"/tmp/denial/denial_${DENIAL_VERSION}-1_arm64.deb"
 rm -rf "$ROOT/tmp/denial"
 
 # Keep the image small: no documentation, no apt cache, no man pages.

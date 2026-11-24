@@ -68,7 +68,9 @@ def main():
         if line.startswith("Filesystem UUID:"):
             got_uuid = line.split(":", 1)[1].strip()
     check("root filesystem UUID matches boot cmdline", got_uuid == uuid, str(got_uuid))
-    check("root filesystem is ext4", "ext4" in dumpe2fs.lower())
+    features = " ".join(l for l in dumpe2fs.splitlines() if l.startswith("Filesystem features:"))
+    check("root filesystem is ext4", "extent" in features and "has_journal" in features,
+          features.replace("Filesystem features:", "").strip()[:80])
 
     def ls(path):
         return run(["debugfs", "-R", f"ls -l {path}", root]).stdout

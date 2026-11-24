@@ -1,0 +1,4 @@
+# The kernel mounts the root filesystem itself (root=UUID=... on the cmdline);
+# this entry only tells systemd where / is.  No fsck pass on purpose: there is
+# no initramfs, so a root check would have to run on a mounted filesystem.
+UUID=8f3a5c1e-1d2b-4a5f-9c3e-7b6d2a4f8e11	/	ext4	defaults,noatime,errors=remount-ro	0 0
