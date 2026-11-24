@@ -202,7 +202,7 @@ chmod 0440 "$ROOT/etc/sudoers.d/90-$USERNAME"
 
 # ------------------------------------------------------------------- overlay
 log "installing overlay"
-cp -a "$HERE/overlay/." "$ROOT"/
+cp -a "$REPO/debian/overlay/." "$ROOT"/
 # Resolve the user inside the chroot so the numeric ids match.
 UID_=$(in_root id -u "$USERNAME")
 GID_=$(in_root id -g "$USERNAME")
