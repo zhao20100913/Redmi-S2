@@ -71,17 +71,21 @@ else
 	[ -f "$ROOT/etc/debian_version" ] || { echo "debootstrap failed" >&2; exit 1; }
 fi
 
-cat > "$ROOT/etc/apt/sources.list" <<EOF
-deb $MIRROR $RELEASE main contrib non-free-firmware
-deb $MIRROR $RELEASE-updates main contrib non-free-firmware
-deb $MIRROR $RELEASE-security main contrib non-free-firmware
-EOF
-# trixie images use the deb822 format; keep both in sync so that apt is happy
+# deb822 sources (trixie default).  trixie-security lives on
+# security.debian.org, not on the main mirror -- asking deb.debian.org for it
+# returns 404 and apt fails the whole update.
+: > "$ROOT/etc/apt/sources.list"
 mkdir -p "$ROOT/etc/apt/sources.list.d"
 cat > "$ROOT/etc/apt/sources.list.d/debian.sources" <<EOF
 Types: deb
 URIs: $MIRROR
-Suites: $RELEASE $RELEASE-updates $RELEASE-security
+Suites: $RELEASE $RELEASE-updates
+Components: main contrib non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.debian.org/debian-security
+Suites: $RELEASE-security
 Components: main contrib non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
@@ -112,7 +116,7 @@ in_root() {
 
 # ---------------------------------------------------------------- packages
 log "apt-get update"
-in_root apt-get update
+in_root apt-get update -o Acquire::Languages=none -o Acquire::Retries=3
 
 mapfile -t WANTED < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[[:space:]]//g' "$HERE/packages.txt")
 INSTALL=()
