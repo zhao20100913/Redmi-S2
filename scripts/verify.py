@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Structural checks for the two images we publish.
+"""Structural checks for the images we publish.
 
-Nothing here needs a device: it parses the boot partition composite (lk2nd +
-ext2 boot filesystem), the ext4 root image (superblock + files through
-debugfs), and fails loudly when the pieces the phone needs are missing.
+Nothing here needs a phone: it parses lk2nd.img (Android boot image containing
+the msm8953 device database), the ext2 boot filesystem that goes to the
+recovery partition, and the ext4 root image (superblock + files via debugfs).
 """
 
 import json
 import os
-import re
 import struct
 import subprocess
 import sys
@@ -27,38 +26,40 @@ def run(cmd):
 
 
 def main():
-    boot = sys.argv[1] if len(sys.argv) > 1 else "out/boot.img"
-    root = sys.argv[2] if len(sys.argv) > 2 else "out/root.img"
+    lk2nd = sys.argv[1] if len(sys.argv) > 1 else "out/lk2nd.img"
+    bootfs = sys.argv[2] if len(sys.argv) > 2 else "out/bootfs.img"
+    root = sys.argv[3] if len(sys.argv) > 3 else "out/root.img"
     uuid = open(root + ".uuid").read().strip() if os.path.exists(root + ".uuid") else None
 
-    # ---------------------------------------------------------------- boot.img
-    data = open(boot, "rb").read(2 * 1024 * 1024)
-    check("boot.img exists", os.path.exists(boot), f"{os.path.getsize(boot)} bytes")
-    check("lk2nd android header at 0", data[:8] == b"ANDROID!", data[:8].hex())
+    # --------------------------------------------------------------- lk2nd.img
+    blob = open(lk2nd, "rb").read()
+    check("lk2nd.img exists", os.path.exists(lk2nd), f"{len(blob)} bytes")
+    check("lk2nd is an Android boot image", blob[:8] == b"ANDROID!", blob[:8].hex())
+    check("lk2nd fits a boot partition", len(blob) < 16 * 1024 * 1024,
+          f"{len(blob) / 1048576:.1f} MiB")
+    check("lk2nd knows the Redmi S2 device tree", b"Xiaomi Redmi S2" in blob)
+    check("lk2nd knows the ysl panels", b"xiaomi,ysl-ili9881c" in blob)
 
-    off = 512 * 1024
-    sb = data[off + 1024: off + 1024 + 1024]
-    magic = struct.unpack("<H", sb[56:58])[0] if len(sb) >= 58 else 0
-    check("ext2 boot filesystem at 512 KiB", magic == 0xEF53, f"magic {magic:#x}")
-    check("boot partition image fits 64 MiB", os.path.getsize(boot) < 64 * 1024 * 1024,
-          f"{os.path.getsize(boot) / 1048576:.1f} MiB")
+    # --------------------------------------------------------------- bootfs.img
+    check("bootfs.img exists", os.path.exists(bootfs),
+          f"{os.path.getsize(bootfs) / 1048576:.1f} MiB")
+    with open(bootfs, "rb") as fh:
+        fh.seek(1024 + 56)
+        magic = struct.unpack("<H", fh.read(2))[0]
+    check("bootfs is ext2 (lk2nd cannot read ext4)", magic == 0xEF53, f"magic {magic:#x}")
+    check("bootfs fits the recovery partition", os.path.getsize(bootfs) <= 32 * 1024 * 1024,
+          f"{os.path.getsize(bootfs) / 1048576:.1f} MiB")
 
-    # read the filesystem through debugfs on an extracted copy
-    tmp = "/tmp/bootfs.img"
-    with open(boot, "rb") as src, open(tmp, "wb") as dst:
-        src.seek(off)
-        dst.write(src.read(24 * 1024 * 1024))
-    conf = run(["debugfs", "-R", "cat /extlinux/extlinux.conf", tmp]).stdout
+    conf = run(["debugfs", "-R", "cat /extlinux/extlinux.conf", bootfs]).stdout
     check("extlinux.conf readable", "linux /vmlinuz" in conf)
     if uuid:
         check("cmdline carries the root UUID", f"root=UUID={uuid}" in conf,
               conf.strip().splitlines()[-1][:90] if conf.strip() else "empty")
-    listing = run(["debugfs", "-R", "ls -l /", tmp]).stdout
-    check("kernel in boot fs", "vmlinuz" in listing)
-    dtb_line = [l for l in listing.splitlines() if "msm8953-xiaomi-ysl.dtb" in l]
-    check("device dtb in boot fs", bool(dtb_line))
-    # lk2nd decompresses the kernel into a 32 MiB buffer; the gzip'd file is
-    # small but the Image inside must fit, so keep the manifest's size check.
+    listing = run(["debugfs", "-R", "ls -l /", bootfs]).stdout
+    check("kernel in the boot filesystem", "vmlinuz" in listing)
+    check("device dtb in the boot filesystem", "msm8953-xiaomi-ysl.dtb" in listing)
+    check("the dtb names the ysl panel placeholder",
+          b"xiaomi,ysl-panel" in open(bootfs, "rb").read())
 
     # ----------------------------------------------------------------- root.img
     check("root.img exists", os.path.exists(root), f"{os.path.getsize(root)} bytes")
@@ -67,9 +68,10 @@ def main():
     for line in dumpe2fs.splitlines():
         if line.startswith("Filesystem UUID:"):
             got_uuid = line.split(":", 1)[1].strip()
-    check("root filesystem UUID matches boot cmdline", got_uuid == uuid, str(got_uuid))
+    check("root UUID matches boot cmdline", got_uuid == uuid, str(got_uuid))
     features = " ".join(l for l in dumpe2fs.splitlines() if l.startswith("Filesystem features:"))
-    check("root filesystem is ext4", "extent" in features and "has_journal" in features,
+    check("root filesystem is ext4 with a journal",
+          "extent" in features and "has_journal" in features,
           features.replace("Filesystem features:", "").strip()[:80])
 
     def ls(path):
@@ -78,14 +80,14 @@ def main():
     def cat(path):
         return run(["debugfs", "-R", f"cat {path}", root]).stdout
 
-    root_list = ls("/")
+    entries = ls("/")
     for entry in ("etc", "usr", "lib", "home", "var"):
-        check(f"/{entry} present", entry in root_list)
+        check(f"/{entry} present", entry in entries)
 
     osrel = cat("/etc/debian_version")
     check("Debian 13 (trixie)", "13" in osrel or "trixie" in osrel, osrel.strip())
-
     check("/usr/bin/denial-session installed", "denial-session" in ls("/usr/bin"))
+    check("mobile shell profile for Denial", "mobile" in cat("/etc/denial/session.conf"))
     check("/usr/local/bin/ysl-start-denial", "ysl-start-denial" in ls("/usr/local/bin"))
     check("/usr/local/sbin/ysl-usb-gadget.sh", "ysl-usb-gadget.sh" in ls("/usr/local/sbin"))
     check("sshd drop-in", "10-redmi-s2.conf" in ls("/etc/ssh/sshd_config.d"))
@@ -93,12 +95,11 @@ def main():
     krel = cat("/etc/redmi-s2-kernel-release").strip()
     check("kernel release recorded", bool(krel), krel)
     if krel:
-        mods = ls(f"/lib/modules/{krel}")
-        check("kernel modules installed", "kernel" in mods or len(mods.splitlines()) > 5,
-              krel)
+        check("kernel modules installed", "kernel" in ls(f"/lib/modules/{krel}") or
+              len(ls(f"/lib/modules/{krel}").splitlines()) > 5, krel)
         check("modules.dep generated", "modules.dep" in ls(f"/lib/modules/{krel}"))
-    fw = ls("/lib/firmware/qcom")
-    check("adreno firmware", "a530_pfp.fw" in fw or "msm8953" in fw)
+    check("adreno firmware", "a530_pfp.fw" in ls("/lib/firmware/qcom") or
+          "msm8953" in ls("/lib/firmware/qcom"))
     check("ysl zap shader", "ysl" in ls("/lib/firmware/qcom/msm8953/xiaomi"))
 
     if FAIL:

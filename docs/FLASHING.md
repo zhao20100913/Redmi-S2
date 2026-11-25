@@ -1,87 +1,122 @@
-# 刷机与回滚
+# 刷机：红米 S2（ysl）
 
-设备：**Xiaomi Redmi S2 / Redmi Y2**，代号 `ysl`，MSM8953（骁龙 625）。
-系统：Debian 13 + Denial，主线内核，lk2nd 二级引导。
+这条线的刷机方式和三星 C7 那条不一样，原因只有一个：**红米 S2 的屏幕面板要靠
+lk2nd 才能选对**（`msm8953-xiaomi-ysl` 在主线内核里只留了一个占位的
+`compatible = "xiaomi,ysl-panel"`，真面板型号是 lk2nd 从原厂 DT 里读出来再补进去的）。
+所以这台机器必须多刷一个 lk2nd，C7 那种「一个 boot.img 打天下」在这里不成立。
 
-## 0. 前提
+整机只有三块分区被动：
 
-- **Bootloader 已解锁**（小米社区申请或 9008 方式），设置里「OEM 解锁」已开过。
-  解锁后开机第一屏会有 unlocked 警告。
-- 电脑有 `fastboot`（`apt install android-tools-fastboot` 或 platform-tools）。
-- **备份**：`fastboot getvar all` 存一份；有条件的话先用 TWRP 备份 `persist`、`modem`、`efs`。
-  这些分区丢了基带/序列号就回不来，而本系统完全不碰它们。
+| 分区 | 刷什么 | 什么时候动 |
+| --- | --- | --- |
+| BOOT | `lk2nd.img`（二级引导） | 只在第一次，或者 lk2nd 要升级时 |
+| RECOVERY | `bootfs.img`（24 MiB ext2：extlinux + 内核 + 设备树） | 每次换内核 |
+| USERDATA | `root.img`（Debian 13 + Denial） | 每次重装系统（数据全丢） |
 
-## 1. 首次安装
+SYSTEM / VENDOR / PERSIST / EFS / MODEM / BOOTLOADER **一律不碰**，基带、序列号、
+传感器标定都在那里面。
 
-手机 **关机**，按住 **电源 + 音量下** 进原厂 fastboot（屏幕显示 FASTBOOT）。
-`fastboot devices` 能看到设备再继续。
+## 0. 先把这三件事准备好
+
+1. **解锁 BL**。设置里登录小米账号 → 打开「OEM 解锁」→ 用小米解锁工具解锁。
+   解锁后开机会有 unlocked 警告，这是正常的。
+2. **电脑装好 fastboot**：
+   - Ubuntu/Debian：`sudo apt install android-tools-fastboot`
+   - Windows/macOS：Google 的 platform-tools
+3. **确认能认到手机**：关机，按住 **电源 + 音量下**，屏幕出现 `FASTBOOT` 后插 USB：
+
+   ```sh
+   fastboot devices        # 要能看到一行设备号
+   ```
+
+   看不到就是驱动/USB 口/没解锁的问题，先解决这个，再谈刷机。
+
+## 1. 第一次安装（三条命令）
+
+下载 release 里的 `lk2nd.img`、`bootfs.img`、`root.img.gz` 放到同一个目录，然后：
 
 ```sh
-gunzip root.img.gz                     # 得到 root.img（约 4 GiB）
+gunzip root.img.gz            # 约 4 GiB
 
-# BOOT：lk2nd + 内核 + dtb 合成镜像，一次性装好
-fastboot flash boot boot.img
-
-# USERDATA：Debian 根文件系统（会清空手机全部数据）
-fastboot flash userdata root.img
+fastboot flash boot      lk2nd.img      # 二级引导
+fastboot flash recovery  bootfs.img     # 内核 + 设备树
+fastboot flash userdata  root.img       # Debian 13 + Denial（会清空手机）
 
 fastboot reboot
 ```
 
-第一次开机：
-
-1. lk2nd 起来后按默认项启动（`timeout 1`，不需要按键）。
-2. 内核 framebuffer 控制台出现滚动日志（720x1440）。
-3. systemd 起来后 USB 变成一块网卡：电脑 `ssh ysl@172.16.42.1`（密码 `147147`）。
-4. tty1 自动登录并启动 Denial。
-
-> **USERDATA 会被整块覆盖。** 想保留数据就不能刷 `root.img`，但那样也就没有系统。
-
-## 2. 以后更新
-
-### 只更新内核（不丢数据）
-
-内核和 dtb 在 BOOT 分区 512 KiB 处的 ext2 小分区里，lk2nd 在分区开头：
+或者用仓库里的脚本（会先检查设备、再逐条确认）：
 
 ```sh
-# 进 lk2nd 的 fastboot：开机震动后按住音量下
-fastboot flash boot bootfs.img     # lk2nd 会把它写到 512 KiB 偏移处
+tools/flash.sh first
+```
+
+`fastboot flash userdata` 要传 4 GiB，USB 2.0 大概 5–10 分钟，别拔线。
+
+## 2. 刷完应该看到什么
+
+1. 开机 → lk2nd 菜单（有一行 `Panel: xiaomi,ysl-ili9881c` 之类）。
+   默认 1 秒后自动继续，也可以按音量键选。
+2. 内核启动，屏幕出现滚动的内核日志（黑底白字，720x1440）。
+3. Android 那个开机 logo 不会再出现——BOOT 分区里已经不是安卓内核了。
+4. systemd 起来后，USB 变成一块网卡，手机是 `172.16.42.1`：
+
+   ```sh
+   ssh ysl@172.16.42.1      # 密码 147147
+   ```
+
+5. tty1 自动登录并启动 Denial，出桌面（手机形态的 shell，带屏幕键盘）。
+
+进不去也别慌：**耳机口 UART（`ttyMSM0`，115200 8N1）从第一秒就有日志**，
+比屏幕可靠得多。
+
+## 3. 以后更新
+
+### 只换内核（不动 lk2nd，不动数据）
+
+```sh
+fastboot flash recovery bootfs.img
 fastboot reboot
 ```
 
-### 更新用户空间
+因为内核和设备树放在 RECOVERY 这个独立的小分区里，所以换内核不需要碰 USERDATA。
 
-只能重刷 `root.img`（数据会没了）。想保留数据就在系统里 `apt` / 手工改。
+### 重装系统
 
-### 重装 lk2nd
+只能重刷 `root.img`（数据会没）。
 
-原厂 fastboot 下 `fastboot flash boot lk2nd.img`。
+### 升级 lk2nd
 
-## 3. 恢复安卓
+```sh
+fastboot flash boot lk2nd.img
+```
 
-两种都可以：
+## 4. 为什么不是照 C7 那样只刷 boot.img
 
-- **MiFlash + 官方线刷包**（推荐，能回到出厂状态）：手机关机，进 fastboot，MiFlash 选包刷。
-- **只回内核**：`fastboot flash boot <原厂 boot.img>`，再 `fastboot flash userdata <原厂 userdata.img>`。
+| | 三星 C7（已跑通） | 红米 S2（这条线） |
+| --- | --- | --- |
+| 引导 | 原厂 ABL 直接加载 boot.img（QCDT + `SEANDROIDENFORCE`） | 原厂 ABL 加载 **lk2nd**，lk2nd 再找 extlinux |
+| 内核在哪 | boot.img 里 | RECOVERY 上的 ext2 小分区 |
+| 屏幕面板 | 主线 DTS 里写死（S6E3FA3） | 必须由 lk2nd 从原厂 DT 里选（三种面板） |
+| 刷机工具 | heimdall | fastboot |
 
-刷机前 `fastboot getvar all` 的输出、原厂 `boot.img` / `userdata.img` 建议留着。
+两者**用户空间完全一样**：都是同一套 debootstrap 出来的 Debian 13 + Denial，
+同样固定 root UUID、同样的用户/ssh/USB 网络/固件加载。差别只在引导那一段。
 
-## 4. 进不去怎么办
+## 5. 想回安卓
 
-| 现象 | 怎么查 |
+- MiFlash + 官方线刷包（最干净，全恢复）。
+- 或者只回内核：`fastboot flash boot <原厂 boot.img>`，再
+  `fastboot flash recovery <原厂 recovery.img>`、`fastboot flash userdata <原厂 userdata.img>`。
+
+## 6. 出问题对照表
+
+| 现象 | 原因 / 下一步 |
 | --- | --- |
-| 卡在 lk2nd 菜单 | 音量键选择；`fastboot getvar all` 看分区；串口 `ttyMSM0` 有 lk2nd 日志 |
-| 内核起来但黑屏 | 串口日志看 lk2nd 打印的 panel 名、`dmesg | grep -i panel` |
-| 有内核日志但没到 systemd | 检查 `root=UUID=` 是否和 root.img 一致（`tune2fs -l root.img | grep UUID`） |
-| 到 systemd 但没桌面 | `ssh ysl@172.16.42.1`，看 `~/.local/state/denial/session.log` |
-| 完全没反应 | 长按电源 10 秒复位；还能进 fastboot 就重刷 `boot.img` |
-
-**串口**：耳机口 UART（`ttyMSM0`，115200 8N1）从第一次开机就有日志，是最可靠的排障通道。
-USB 串口（`ttyGS0`）要等 gadget 服务起来之后才有。
-
-## 5. 为什么是 512 KiB
-
-lk2nd 自己就是 BOOT 分区里被原厂 ABL 加载的「下一个 stage」，它把真正的系统启动镜像
-放在同一个分区 512 KiB 偏移处，这样更新内核永远不会覆盖 lk2nd 本身。
-`boot.img` 是这两段的合成镜像（给原厂 fastboot 用），`bootfs.img` 只是后半段（给 lk2nd
-的 fastboot 用）。
+| `fastboot devices` 空的 | 驱动、USB 口、没解锁。换口/换线，Linux 看 `lsusb` |
+| 刷 `boot` 报 `FAILED (remote: 'size too large')` | lk2nd.img 比 boot 分区大（正常不会，lk2nd 只有 350 KB） |
+| 卡在 lk2nd 菜单 | 它没找到 extlinux：`bootfs.img` 是否刷到 recovery？`fastboot getvar all` 看分区表 |
+| lk2nd 起来了但内核黑屏 | 串口日志看 `Failed to find panel node` / `Unsupported panel`；把 lk2nd 菜单里打印的 Panel 名发我 |
+| 内核日志滚完没到 systemd | `root=UUID=` 和 root.img 的 UUID 对不上（`tune2fs -l root.img | grep UUID`） |
+| 到 systemd 但没桌面 | ssh 进去看 `~/.local/state/denial/session.log` |
+| 完全没反应 | 长按电源 10 秒复位；还能进 fastboot 就重刷 `boot`/`recovery` |

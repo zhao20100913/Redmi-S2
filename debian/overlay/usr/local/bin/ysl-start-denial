@@ -14,6 +14,7 @@ export XDG_SESSION_TYPE=wayland
 export XDG_SESSION_DESKTOP=Denial
 export XDG_CURRENT_DESKTOP=Denial
 export LIBSEAT_BACKEND=logind
+export DENIAL_SHELL_PROFILE="${DENIAL_SHELL_PROFILE:-mobile}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 
@@ -21,6 +22,8 @@ state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/denial"
 mkdir -p "$state_dir"
 chmod 0700 "$state_dir"
 log="$state_dir/session.log"
+mkdir -p /tmp/.X11-unix 2>/dev/null || true
+chmod 1777 /tmp/.X11-unix 2>/dev/null || true
 exec >>"$log" 2>&1
 
 printf '\n=== Redmi S2 Debian/Denial session %s ===\n' "$(date -Iseconds)"
