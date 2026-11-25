@@ -43,9 +43,26 @@ flash_boot() {
 	fastboot flash boot lk2nd.img
 }
 
+# bootfs.img is just an ext2 filesystem, so any spare partition lk2nd scans
+# will do.  Prefer recovery (64 MiB, spare); fall back to system when the
+# phone has no recovery partition.
+pick_bootfs_partition() {
+	local vars
+	vars=$(fastboot getvar all 2>&1 || true)
+	if echo "$vars" | grep -q "partition-size:recovery:"; then
+		echo recovery
+	elif echo "$vars" | grep -q "partition-size:system:"; then
+		echo system
+	else
+		echo recovery
+	fi
+}
+
 flash_bootfs() {
-	say "刷 bootfs.img 到 RECOVERY 分区（内核 + 设备树，不动数据）"
-	fastboot flash recovery bootfs.img
+	local part
+	part=$(pick_bootfs_partition)
+	say "刷 bootfs.img 到 ${part^^} 分区（内核 + 设备树，不动数据）"
+	fastboot flash "$part" bootfs.img
 }
 
 flash_root() {

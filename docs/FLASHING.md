@@ -10,7 +10,7 @@ lk2nd 才能选对**（`msm8953-xiaomi-ysl` 在主线内核里只留了一个占
 | 分区 | 刷什么 | 什么时候动 |
 | --- | --- | --- |
 | BOOT | `lk2nd.img`（二级引导） | 只在第一次，或者 lk2nd 要升级时 |
-| RECOVERY | `bootfs.img`（24 MiB ext2：extlinux + 内核 + 设备树） | 每次换内核 |
+| RECOVERY（没有就 SYSTEM） | `bootfs.img`（24 MiB ext2：extlinux + 内核 + 设备树） | 每次换内核 |
 | USERDATA | `root.img`（Debian 13 + Denial） | 每次重装系统（数据全丢） |
 
 SYSTEM / VENDOR / PERSIST / EFS / MODEM / BOOTLOADER **一律不碰**，基带、序列号、
@@ -39,13 +39,14 @@ SYSTEM / VENDOR / PERSIST / EFS / MODEM / BOOTLOADER **一律不碰**，基带�
 gunzip root.img.gz            # 约 4 GiB
 
 fastboot flash boot      lk2nd.img      # 二级引导
-fastboot flash recovery  bootfs.img     # 内核 + 设备树
+fastboot flash recovery  bootfs.img     # 内核 + 设备树（没有 recovery 分区就换 system）
 fastboot flash userdata  root.img       # Debian 13 + Denial（会清空手机）
 
 fastboot reboot
 ```
 
-或者用仓库里的脚本（会先检查设备、再逐条确认）：
+`tools/flash.sh` 会先用 `fastboot getvar all` 看这台机器有哪些分区，自动在
+`recovery` 和 `system` 之间选一个来放内核；手工刷的话就按上面写死 `recovery`。
 
 ```sh
 tools/flash.sh first
