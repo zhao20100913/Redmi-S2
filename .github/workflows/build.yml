@@ -4,9 +4,9 @@ name: Build Debian 13 + DenialWM for Redmi S2 (ysl)
 # Redmi S2 / Redmi Y2 (ysl, MSM8953 / Snapdragon 625).
 #
 # Boot chain:
-#   stock ABL -> lk2nd (boot partition) -> ext2 boot fs on the recovery
-#   partition (extlinux.conf) -> mainline msm8953 kernel + ysl DTB
-#   -> ext4 root on userdata
+#   stock ABL -> lk2nd (boot partition) -> reads /extlinux/extlinux.conf from
+#   the userdata filesystem -> mainline msm8953 kernel + ysl DTB
+#   -> same filesystem mounted as root by the kernel
 #
 # The kernel, lk2nd and the Qualcomm firmware come from the *published*
 # postmarketOS aarch64 packages (see scripts/fetch-base.py); only the Debian
@@ -14,8 +14,7 @@ name: Build Debian 13 + DenialWM for Redmi S2 (ysl)
 #
 # Outputs (artifact "redmi-s2-<run>"):
 #   lk2nd.img         secondary bootloader, flashed to BOOT
-#   bootfs.img        ext2 with extlinux.conf + kernel + dtb, flashed to RECOVERY
-#   root.img.gz       Debian 13 + Denial, flashed to USERDATA
+#   root.img.gz       Debian 13 + Denial (kernel + extlinux inside), USERDATA
 #   SHA256SUMS, verify.log, manifest.json
 
 on:
@@ -107,7 +106,7 @@ jobs:
         run: |
           sudo -E scripts/build-rootfs.sh rootfs base
 
-      - name: Build lk2nd.img + bootfs.img
+      - name: Stage lk2nd.img
         run: bash scripts/make-boot.sh base out
 
       - name: Build root.img
@@ -115,14 +114,13 @@ jobs:
 
       - name: Verify images
         run: |
-          sudo python3 scripts/verify.py out/lk2nd.img out/bootfs.img out/root.img \
-            | tee out/verify.log
+          sudo python3 scripts/verify.py out/lk2nd.img out/root.img | tee out/verify.log
 
       - name: Compress and checksum
         run: |
           gzip -6 out/root.img
           cp base/manifest.json out/manifest.json
-          (cd out && sha256sum lk2nd.img bootfs.img root.img.gz > SHA256SUMS && cat SHA256SUMS)
+          (cd out && sha256sum lk2nd.img root.img.gz > SHA256SUMS && cat SHA256SUMS)
           sudo chown -R "$(id -u):$(id -g)" out
           ls -la out
 
@@ -140,7 +138,6 @@ jobs:
         with:
           files: |
             out/lk2nd.img
-            out/bootfs.img
             out/root.img.gz
             out/SHA256SUMS
             out/verify.log

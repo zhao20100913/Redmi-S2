@@ -227,6 +227,29 @@ cp -a "$BASE/firmware/." "$ROOT/lib/firmware/"
 depmod -b "$ROOT" "$KREL"
 printf '%s\n' "$KREL" > "$ROOT/etc/redmi-s2-kernel-release"
 
+# ------------------------------------------------------- boot files (lk2nd)
+# lk2nd mounts *this* filesystem (the userdata partition), reads
+# /extlinux/extlinux.conf and loads the kernel and device tree from it.  That
+# is why the image must be formatted without extents -- see
+# make-rootfs-image.sh -- and why the kernel lives inside the root filesystem
+# instead of on a separate partition: flashing two images is enough, and a
+# kernel update is just replacing /boot/vmlinuz from inside Debian.
+log "installing boot files (extlinux + kernel + dtb)"
+DTB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dtb"])' "$BASE/manifest.json")
+mkdir -p "$ROOT/extlinux" "$ROOT/boot"
+cp "$BASE/vmlinuz" "$ROOT/boot/vmlinuz"
+cp "$BASE/device.dtb" "$ROOT/boot/$DTB"
+cat > "$ROOT/extlinux/extlinux.conf" <<EOF
+# lk2nd reads only linux/fdt/initrd/append; everything else is ignored.
+timeout 1
+default Debian13
+label Debian13
+    linux /boot/vmlinuz
+    fdt /boot/$DTB
+    append root=UUID=$ROOTFS_UUID rootwait rw console=ttyMSM0,115200n8 loglevel=7
+EOF
+chmod 0644 "$ROOT/extlinux/extlinux.conf" "$ROOT/boot/vmlinuz" "$ROOT/boot/$DTB"
+
 # ------------------------------------------------------------------ services
 log "enabling services"
 for unit in \

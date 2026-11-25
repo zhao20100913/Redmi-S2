@@ -18,10 +18,16 @@ mkdir -p "$(dirname "$IMAGE")"
 rm -f "$IMAGE"
 truncate -s "${SIZE_GB}G" "$IMAGE"
 
-# -d populates the filesystem straight from the directory (no loop mount, no
-# root-owned mount namespace games).  journal on: this is a phone that gets
-# its battery pulled.
-mkfs.ext4 -q -F -L redmi-s2 -U "$ROOTFS_UUID" \
+# Feature set: lk2nd's tiny ext2 driver mounts this filesystem at boot to read
+# /extlinux/extlinux.conf and the kernel, so it must stay inside what that
+# driver understands:
+#   incompat  only filetype/meta_bg  -> no extent, no 64bit, no flex_bg
+#   ro_compat only sparse_super/large_file -> no metadata_csum, huge_file,
+#                                              dir_nlink, extra_isize
+# Journal stays on (this is a phone that gets its battery pulled); 256-byte
+# inodes are kept so timestamps survive past 2038.
+mkfs.ext4 -q -F -L redmi-s2 -U "$ROOTFS_UUID" -b 4096 -I 256 \
+	-O ^extent,^64bit,^flex_bg,^metadata_csum,^huge_file,^dir_nlink,^extra_isize \
 	-d "$ROOTDIR" "$IMAGE" "${SIZE_GB}G"
 
 echo "==> root.img      : $IMAGE"

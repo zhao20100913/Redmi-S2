@@ -8,11 +8,11 @@
 
 ## 状态
 
-- **v0.2.0**：按三星 C7 那条已跑通的线的结构重做了引导——lk2nd 进 BOOT，
-  内核/设备树放进 RECOVERY 的 ext2 小分区，Debian 进 USERDATA。
+- **v0.3.0**：只刷两个分区——lk2nd 进 BOOT，Debian（**内含内核和设备树**）
+  进 USERDATA。不占 recovery/system，`rec` 刷不进去也不影响。
 - CI 的结构自检（`scripts/verify.py`）全过：lk2nd 是合法 Android boot 镜像且内含
-  ysl 设备树、bootfs 是 ext2 且 extlinux 里的 root UUID 与根镜像一致、
-  Denial 与内核模块、ysl 的 GPU zap shader 都在位。
+  ysl 设备树、根镜像的文件系统特性在 lk2nd 能读的范围内、`/extlinux/extlinux.conf`
+  与 `/boot` 里的内核/dtb 在位、Denial 与内核模块、ysl 的 GPU zap shader 都在。
 - **还没有在真机上开过机。** 第一次刷机后的串口日志/现象是下一步唯一需要的东西。
 
 ## 它由什么组成
@@ -21,17 +21,20 @@
 | --- | --- | --- |
 | lk2nd | postmarketOS 官方 aarch64 包（`lk2nd-msm8953` 23.1） | 二级引导，刷进 **BOOT**；从原厂 DT 读面板型号（ili9881c / h8394f / ili7807d）并补进内核设备树 |
 | 内核 | `linux-postmarketos-qcom-msm8953` 7.1.3 | 主线 msm8953：DRM/DSI、ft5406 触摸、WCN36xx WiFi、a530 GPU |
-| 内核+设备树 | 同上，打包进一个 24 MiB ext2 | 刷进 **RECOVERY**，lk2nd 用 extlinux 从这里启动 |
+| 内核+设备树 | 同上，直接放进根文件系统的 `/boot` + `/extlinux` | 不用单独分区，换内核就是替换两个文件 |
 | 用户空间 | 本仓库 debootstrap 现场生成 | Debian 13 arm64、systemd、中文、ssh、NetworkManager |
 | 桌面 | Denial 0.6.8 官方 arm64 deb | Flutter Wayland compositor，`DENIAL_SHELL_PROFILE=mobile`（带屏幕键盘） |
 
 启动链：
 
 ```
-原厂 ABL → BOOT 里的 lk2nd → 扫描分区找到 RECOVERY 上的 ext2
-        → extlinux.conf → 主线内核 + ysl DTB（面板已由 lk2nd 补好）
-        → 内核直接挂 USERDATA 上的 ext4（root=UUID=…）→ systemd → Denial
+原厂 ABL → BOOT 里的 lk2nd → 挂载 USERDATA → /extlinux/extlinux.conf
+        → /boot/vmlinuz + ysl DTB（面板已由 lk2nd 补好）
+        → 同一分区当根（root=UUID=…）→ systemd → Denial
 ```
+
+根文件系统特意用「无 extent / 无 64bit / 无 metadata_csum」的 ext4（即 ext3 风格）：
+lk2nd 的文件系统驱动只认这一套，它得能读出 `/extlinux` 和内核。
 
 没有 initramfs，也没有 postmarketOS 用户空间；内核直接挂根。
 
@@ -40,8 +43,7 @@
 | 文件 | 刷到 | 说明 |
 | --- | --- | --- |
 | `lk2nd.img` | BOOT | 二级引导（约 350 KB） |
-| `bootfs.img` | RECOVERY | 24 MiB ext2：`extlinux.conf` + 内核 + 设备树；换内核只刷它 |
-| `root.img.gz` | USERDATA | Debian 13 + Denial，约 4 GiB，首次启动自动扩到整个分区 |
+| `root.img.gz` | USERDATA | Debian 13 + Denial（内核与设备树在 `/boot`），约 4 GiB，首次启动自动扩满分区 |
 | `SHA256SUMS` `verify.log` `manifest.json` | – | 校验 / 结构自检 / 用的内核与 lk2nd 版本 |
 
 ## 怎么刷（三条命令）
@@ -52,7 +54,6 @@
 gunzip root.img.gz
 
 fastboot flash boot      lk2nd.img
-fastboot flash recovery  bootfs.img
 fastboot flash userdata  root.img
 
 fastboot reboot
@@ -60,7 +61,8 @@ fastboot reboot
 
 或者用 `tools/flash.sh first`（会先检查设备再逐条确认）。
 
-以后只换内核：`fastboot flash recovery bootfs.img` —— 不动 lk2nd，不动数据。
+以后换内核：把新的 `vmlinuz` / dtb 拷进手机的 `/boot` 再重启即可
+（lk2nd 每次开机都重新读），完全不用 fastboot、不动数据。
 
 细节、对照表、回安卓的方法见 [docs/FLASHING.md](docs/FLASHING.md)。
 
@@ -97,7 +99,7 @@ python3 scripts/fetch-base.py base
 sudo ./scripts/build-rootfs.sh rootfs base
 bash scripts/make-boot.sh base out
 sudo bash scripts/make-rootfs-image.sh rootfs out/root.img 4
-sudo python3 scripts/verify.py out/lk2nd.img out/bootfs.img out/root.img
+sudo python3 scripts/verify.py out/lk2nd.img out/root.img
 ```
 
 ## 已知限制（实话）
@@ -128,11 +130,11 @@ cat ~/.local/state/denial/session.log
 | `.github/workflows/build.yml` | 整条流水线（打 tag 自动发 release） |
 | `scripts/fetch-base.py` | 取 postmarketOS 的内核 / lk2nd / 固件（版本钉死、校验大小） |
 | `scripts/build-rootfs.sh` | debootstrap Debian 13 + Denial + 设备层 |
-| `scripts/make-boot.sh` | 生成 `lk2nd.img` 和 `bootfs.img` |
+| `scripts/make-boot.sh` | 产出 `lk2nd.img` |
 | `scripts/make-rootfs-image.sh` | 生成固定 UUID 的 ext4 根镜像 |
 | `scripts/verify.py` | 三个镜像的结构自检（不需要真机） |
 | `debian/overlay/` | systemd 单元、USB gadget、固件加载、Denial 启动脚本与会话配置 |
-| `tools/flash.sh` | 刷机脚本（first / kernel / root / check） |
+| `tools/flash.sh` | 刷机脚本（first / root / kernel / check） |
 | `docs/FLASHING.md` | 刷机细节、对照表、回滚 |
 
 ## 致谢
